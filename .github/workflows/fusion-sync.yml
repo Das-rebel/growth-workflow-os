@@ -10,8 +10,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run Fusion sync
-        env:
-          FUSION_BEARER_TOKEN: ${{ secrets.FUSION_BEARER_TOKEN }}
-        run: |
-          echo "Fusion sync would run here"
-          echo "Dashboard: https://fusion-dashboard-338789220059.asia-south1.run.app"
+        run: echo "Dashboard: https://fusion-dashboard-338789220059.asia-south1.run.app"
