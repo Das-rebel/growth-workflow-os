@@ -1,0 +1,17 @@
+name: Sync Fusion Tasks
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Fusion sync
+        env:
+          FUSION_BEARER_TOKEN: ${{ secrets.FUSION_BEARER_TOKEN }}
+        run: |
+          echo "Fusion sync would run here"
+          echo "Dashboard: https://fusion-dashboard-338789220059.asia-south1.run.app"
