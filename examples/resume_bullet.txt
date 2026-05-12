@@ -1,0 +1,12 @@
+AI Workflow & Growth Systems
+
+Built Growth Workflow OS (github.com/Das-rebel/growth-workflow-os) — an open-source
+AI-enabled system that turns market signals into growth workflow redesigns and weekly
+operator memos. Encodes 10 years of fintech growth judgment (Axis Bank ₹1,500Cr,
+Groww 7x, NIRO embedded lending) into structured decision routing,
+lifecycle automation, and CRM segmentation patterns. 10 org patterns
+(including India fintech: embedded lending ops, vernacular WhatsApp growth).
+6 India fintech workflow templates. SQLite memory layer with signal,
+thesis, and prediction tracking. Weekly Growth Workflow Intelligence Brief.
+
+Stack: Python, SQLite, Groq/Mistral LLM, RSS/arXiv/Reddit collectors.

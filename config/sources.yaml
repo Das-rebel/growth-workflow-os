@@ -1,0 +1,95 @@
+# Signal Sources Configuration
+# Each source defines where signals come from and how to collect them
+
+rss_feeds:
+  - name: "a16z News"
+    url: "https://a16z.com/feed/"
+    category: "vc_commentary"
+    frequency: "daily"
+
+  - name: "Stratechery"
+    url: "https://stratechery.com/feed/"
+    category: "strategy_analysis"
+    frequency: "weekly"
+
+  - name: "Ben Evans"
+    url: "https://ben-evans.com/feed"
+    category: "market_analysis"
+    frequency: "weekly"
+
+  - name: "TechCrunch AI"
+    url: "https://techcrunch.com/category/artificial-intelligence/feed/"
+    category: "product_launch"
+    frequency: "daily"
+
+  - name: "SaaStr"
+    url: "https://saastr.com/feed/"
+    category: "gtm_operations"
+    frequency: "weekly"
+
+web_monitors:
+  - name: "Hacker News AI"
+    url: "https://news.ycombinator.com/"
+    category: "tech_shift"
+    scrape_pattern: "ai|llm|agent|automation|gpt|claude"
+    frequency: "daily"
+
+  - name: "LinkedIn Operator Posts"
+    platform: "linkedin"
+    category: "operator_commentary"
+    frequency: "manual"
+
+manual_sources:
+  - name: "Direct Input"
+    category: "manual_observation"
+    description: "Manually submitted signals from operator experience"
+
+  - name: "Conversation Fragments"
+    category: "operator_commentary"
+    description: "Insights from operator conversations and discussions"
+
+# Signal categories and their strategic weight
+categories:
+  product_launch:
+    weight: 0.9
+    description: "New AI product or feature launches"
+
+  hiring_trend:
+    weight: 0.7
+    description: "Notable hiring patterns in growth/AI roles"
+
+  market_shift:
+    weight: 0.95
+    description: "Fundamental market or competitive shifts"
+
+  gtm_operations:
+    weight: 0.8
+    description: "Changes in GTM tooling, processes, or org structures"
+
+  workflow_evolution:
+    weight: 0.85
+    description: "New workflow patterns or AI-native operational models"
+
+  vc_commentary:
+    weight: 0.6
+    description: "Investor perspectives on AI-native organizations"
+
+  strategy_analysis:
+    weight: 0.75
+    description: "Strategic analysis of market dynamics"
+
+  operator_commentary:
+    weight: 0.7
+    description: "Practitioner observations and experiences"
+
+  org_design:
+    weight: 0.8
+    description: "Organizational design discussions and experiments"
+
+  tech_shift:
+    weight: 0.7
+    description: "Underlying technology shifts that enable new operational models"
+
+  manual_observation:
+    weight: 0.85
+    description: "Direct operator observations — highest signal quality"
