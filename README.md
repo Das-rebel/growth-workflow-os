@@ -114,6 +114,22 @@ Each brief reads like a growth operator wrote it — specific metrics, India con
 
 ---
 
+## Live dashboard
+
+Deployed at: https://fusion-dashboard-338789220059.asia-south1.run.app
+
+## About the builder
+
+Subhajit Das — 10yr fintech growth lead (Axis Bank ₹1,500Cr portfolio, Groww 7x $5M→$36M,
+NIRO embedded lending $8M+). Also builds:
+[OmniClaw](https://github.com/Das-rebel/omniclaw) ·
+[ChuckleNet](https://github.com/Das-rebel/ChuckleNet)
+
+→ [github.com/Das-rebel](https://github.com/Das-rebel) ·
+[linkedin.com/in/subhajitd](https://www.linkedin.com/in/subhajitd)
+
+---
+
 ## Documentation
 
 - `CLAUDE.md` — System identity and positioning for AI agents
