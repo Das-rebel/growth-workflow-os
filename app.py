@@ -129,34 +129,52 @@ def parse_roadmap():
 
 # ─── Fusion tasks ────────────────────────────────────────────────────────
 def get_fusion_tasks():
-    """Read Fusion tasks from the project's .fusion/fusion.db."""
-    project_fusion_db = ROOT / ".fusion" / "fusion.db"
-    if not project_fusion_db.exists():
-        return {"triage": [], "todo": [], "in-progress": [], "done": []}
+    """Read Fusion tasks from the cloud dashboard API (source of truth)."""
+    import urllib.request, json
+
+    CLOUD_API = "https://fusion-dashboard-338789220059.asia-south1.run.app/api/tasks"
+    BEARER_TOKEN = "fn_68fc5898c901a22af5fb52576b0dbf6e"
 
     try:
-        conn = sqlite3.connect(str(project_fusion_db))
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, title, description, "column" as col, priority, status FROM tasks ORDER BY createdAt DESC')
-        rows = cursor.fetchall()
-        conn.close()
+        req = urllib.request.Request(
+            CLOUD_API,
+            headers={
+                "Authorization": f"Bearer {BEARER_TOKEN}",
+                "Accept": "application/json"
+            }
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            tasks = json.loads(resp.read())
     except Exception:
         return {"triage": [], "todo": [], "in-progress": [], "done": []}
 
+    if not isinstance(tasks, list):
+        return {"triage": [], "todo": [], "in-progress": [], "done": []}
+
     cols = {"triage": [], "todo": [], "in-progress": [], "done": []}
-    for r in rows:
-        title = r.get("title") or r.get("description") or "Untitled"
-        desc = r.get("description") or ""
-        col = (r.get("col") or "triage").lower().strip()
-        col = {"in_progress": "in-progress", "in-progress": "in-progress",
-               "done": "done", "triage": "triage", "todo": "todo"}.get(col, "triage")
+    for t in tasks:
+        col = (t.get("column") or "triage").lower().strip()
+        col = {
+            "in_progress": "in-progress",
+            "in-progress": "in-progress",
+            "done": "done",
+            "triage": "triage",
+            "todo": "todo",
+            "backlog": "todo",
+        }.get(col, "triage")
+
+        title = t.get("title") or "Untitled"
+        desc = t.get("description") or ""
+        # Strip markdown from description for cleaner display
+        if desc.startswith("##"):
+            desc = "\n".join(desc.split("\n")[2:]).strip()[:200]
+
         cols.setdefault(col, []).append({
-            "id": r["id"],
+            "id": t.get("id", ""),
             "title": title[:80],
             "desc": desc[:200],
-            "priority": r.get("priority", "normal"),
-            "status": r.get("status") or "",
+            "priority": t.get("priority", "normal"),
+            "status": t.get("status") or "",
         })
 
     return cols
