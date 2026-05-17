@@ -133,7 +133,7 @@ def get_fusion_tasks():
     import urllib.request, json
 
     CLOUD_API = "https://fusion-dashboard-338789220059.asia-south1.run.app/api/tasks"
-    BEARER_TOKEN = "fn_68fc5898c901a22af5fb52576b0dbf6e"
+    BEARER_TOKEN = os.getenv("FUSION_BEARER_TOKEN", "fn_68fc5898c901a22af5fb52576b0dbf6e")
 
     try:
         req = urllib.request.Request(
@@ -373,7 +373,7 @@ def page_progress():
         <br>
 
         <b>Step 1: Open Fusion</b><br>
-        <a href="http://localhost:4040/?token=fn_68fc5898c901a22af5fb52576b0dbf6e">http://localhost:4040</a><br>
+        <a href="http://localhost:4040/?token=" + os.getenv("FUSION_BEARER_TOKEN", "fn_68fc5898c901a22af5fb52576b0dbf6e") + "">http://localhost:4040</a><br>
         Select project <code>GrowthOS</code>, then create and run tasks:<br>
         <code>/fusion task create "Your task name"</code><br>
         <code>/fusion task run &lt;id&gt;</code><br>
@@ -418,7 +418,7 @@ def page_progress():
             st.info("No Fusion tasks yet. Configure Fusion above to start tracking tasks.")
 
         st.markdown("---")
-        st.markdown("**Open Fusion:** [http://localhost:4040](http://localhost:4040/?token=fn_68fc5898c901a22af5fb52576b0dbf6e)")
+        st.markdown("**Open Fusion:** [http://localhost:4040](http://localhost:4040/?token=" + os.getenv("FUSION_BEARER_TOKEN", "fn_68fc5898c901a22af5fb52576b0dbf6e") + ")")
 
     with col_roadmap:
         st.markdown("### 📋 ROADMAP.md Tasks")
