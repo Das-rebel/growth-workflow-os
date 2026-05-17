@@ -89,68 +89,32 @@ def generate_content_batch() -> dict:
 
 
 def send_drafts_to_telegram() -> dict:
-    """Send pending drafts to Telegram for review."""
-    print("\n📱 Sending pending drafts to Telegram...")
-
+    """Notify via Telegram that drafts are ready (via OmniClaw bot @Dasomni_bot).
+    
+    Since TELEGRAM_BOT_TOKEN is in OmniClaw's .env, we just print what to send.
+    The actual Telegram send is handled by OmniClaw server.js when user types /drafts.
+    """
+    from content.content_drafts_store import get_drafts_by_status, init_drafts_table
+    init_drafts_table()
+    
     pending = get_drafts_by_status("draft", limit=5)
     if not pending:
         print("  No pending drafts")
         return {"status": "no_pending", "drafts": []}
 
-    sent = []
-    for draft in pending:
-        draft_id = draft["id"]
-        platform = draft["platform"]
-        topic = draft.get("topic", "general")
-        content = draft.get("draft_text", "")[:500]
-
-        msg = f"📝 *Content Draft* [{platform.upper()}]\n"
-        msg += f"Topic: {topic}\n\n"
-        msg += f"{content[:400]}..."
-        msg += f"\n\nReply with 'approve {draft_id}' to publish or 'reject {draft_id}' to discard."
-
-        # Send via Telegram — use OmniClaw bot
-        success = _send_telegram_message(msg)
-        if success:
-            from content.content_drafts_store import update_draft_status
-            update_draft_status(draft_id, "reviewed")
-            sent.append(draft_id)
-
-    print(f"  Sent {len(sent)} drafts to Telegram")
-    return {"status": "sent", "drafts": sent}
+    print(f"  📱 {len(pending)} drafts ready for review. Message @Dasomni_bot: /drafts")
+    print("  📋 Draft IDs: " + ", ".join(str(d['id']) for d in pending))
+    
+    return {"status": "notified", "drafts": [d['id'] for d in pending]}
 
 
 def _send_telegram_message(text: str, chat_id: str = None) -> bool:
-    """Send message via Telegram bot."""
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    if not token:
-        print("  ⚠ No TELEGRAM_BOT_TOKEN")
-        return False
-
-    import urllib.request
-    import json
-
-    # Get chat_id from env or use primary
-    target_chat = chat_id or os.getenv("TELEGRAM_CHAT_ID", "")
-
-    payload = {
-        "text": text,
-    }
-    if target_chat:
-        payload["chat_id"] = target_chat
-
-    try:
-        req = urllib.request.Request(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.read().decode().find("\"ok\":true") >= 0
-    except Exception as e:
-        print(f"  ⚠ Telegram send error: {e}")
-        return False
+    """DEPRECATED — Telegram sending handled by OmniClaw bot @Dasomni_bot.
+    
+    This function is kept for backward compatibility but does nothing.
+    Use /drafts command in Telegram instead.
+    """
+    return False
 
 
 def run_content_pipeline():

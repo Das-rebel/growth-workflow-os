@@ -184,7 +184,7 @@ def sidebar():
     with st.sidebar:
         st.markdown("# 🧠 Growth OS")
         st.markdown("---")
-        page = st.radio("Navigate", ["📡 Signals", "🧠 Intelligence", "🚀 Progress", "⚡ Pipeline"], label_visibility="collapsed")
+        page = st.radio("Navigate", ["📡 Signals", "🧠 Intelligence", "🚀 Progress", "⚡ Pipeline", "📝 Content"], label_visibility="collapsed")
         st.markdown("---")
 
         # Live stats
@@ -535,7 +535,165 @@ def page_pipeline():
         st.info("Could not load settings")
 
 
-# ─── Main ────────────────────────────────────────────────────────────────
+# ─── API route for Telegram bot ───────────────────────────────────────────
+@st.dialog("Draft Detail")
+def show_draft_detail(draft_id):
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from content.content_drafts_store import get_draft, update_draft_status
+    draft = get_draft(draft_id)
+    if not draft:
+        st.error("Draft not found")
+        return
+    platform = draft.get("platform", "linkedin")
+    st.markdown(f"## {platform.upper()} Draft #{draft_id}")
+    st.markdown(draft.get("draft_text", ""))
+    st.divider()
+    col1, col2, col3 = st.columns(3)
+    if col1.button("✅ Approve"):
+        update_draft_status(draft_id, "approved")
+        st.success("Approved!")
+        st.rerun()
+    if col2.button("❌ Reject"):
+        update_draft_status(draft_id, "rejected")
+        st.rerun()
+    if col3.button("🔙 Close"):
+        st.rerun()
+
+
+def page_content():
+    """Content queue — ghost writer drafts for review and approval."""
+    st.header("📝 Content Queue")
+    st.caption("AI-generated posts · Review → Approve → Publish")
+
+    # Init content drafts store
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from content.content_drafts_store import (
+        get_drafts_by_status, get_content_stats,
+        update_draft_status, init_drafts_table
+    )
+    init_drafts_table()
+
+    # Stats row
+    stats = get_content_stats(days=30)
+    c1, c2, c3, c4, c5 = st.columns(5)
+    breakdown = stats.get("status_breakdown", {})
+    c1.metric("Draft", breakdown.get("draft", 0))
+    c2.metric("Reviewed", breakdown.get("reviewed", 0))
+    c3.metric("Approved", breakdown.get("approved", 0))
+    c4.metric("Posted", breakdown.get("posted", 0))
+    c5.metric("Rejected", breakdown.get("rejected", 0))
+
+    st.divider()
+
+    # Platform filter tabs
+    tab_all, tab_linkedin, tab_twitter = st.tabs(["All", "LinkedIn", "Twitter/X"])
+
+    def render_draft(draft, platform):
+        platform_icon = "🔗" if platform == "linkedin" else "🐦"
+        status_badge = {
+            "draft": "⬜ Draft",
+            "reviewed": "👀 Reviewed",
+            "approved": "✅ Approved",
+            "posted": "📤 Posted",
+            "rejected": "❌ Rejected",
+        }.get(draft.get("status", ""), "?")
+
+        with st.container():
+            col_p, col_s = st.columns([5, 1])
+            with col_p:
+                st.markdown(f"**{platform_icon} {platform.upper()}** &nbsp;&nbsp; <span style='color:var(--muted)'>{draft.get('topic','general')}</span>")
+                content = draft.get("draft_text", "")
+                if platform == "twitter":
+                    # Parse tweets from thread text
+                    tweets = content.split("\n")
+                    for t in tweets:
+                        t = t.strip()
+                        if t:
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{t}")
+                else:
+                    st.markdown(content[:600] + ("..." if len(content) > 600 else ""))
+            with col_s:
+                st.markdown(status_badge)
+                st.caption(draft.get("generated_at", "")[:16])
+
+            # Action buttons
+            if draft.get("status") in ("draft", "reviewed"):
+                action_col1, action_col2, action_col3 = st.columns(3)
+                with action_col1:
+                    if st.button(f"✅ Approve", key=f"approve_{draft['id']}", use_container_width=True):
+                        update_draft_status(draft["id"], "approved")
+                        st.success(f"Draft {draft['id']} approved!")
+                        st.rerun()
+                with action_col2:
+                    if st.button(f"❌ Reject", key=f"reject_{draft['id']}", use_container_width=True):
+                        update_draft_status(draft["id"], "rejected")
+                        st.rerun()
+                with action_col3:
+                    if st.button(f"🔄 Edit", key=f"edit_{draft['id']}", use_container_width=True):
+                        st.info("Edit in Telegram: reply 'edit " + str(draft["id"]) + "' to the bot")
+            elif draft.get("status") == "approved":
+                st.success("Ready to publish — post manually on " + platform.upper())
+
+            st.markdown("---")
+
+    def show_platform(platform=None):
+        drafts = get_drafts_by_status("draft", platform, limit=20) + \
+                 get_drafts_by_status("reviewed", platform, limit=20) + \
+                 get_drafts_by_status("approved", platform, limit=20) + \
+                 get_drafts_by_status("posted", platform, limit=10) + \
+                 get_drafts_by_status("rejected", platform, limit=5)
+
+        if not drafts:
+            st.info("No drafts yet — run the content pipeline to generate posts.")
+            return
+
+        for d in drafts:
+            render_draft(d, d.get("platform", platform or "linkedin"))
+
+    with tab_all:
+        for status in ["draft", "reviewed", "approved", "posted", "rejected"]:
+            drafts = get_drafts_by_status(status, limit=10)
+            if drafts:
+                st.markdown(f"### {status.upper()}")
+                for d in drafts:
+                    render_draft(d, d.get("platform", "linkedin"))
+
+    with tab_linkedin:
+        show_platform("linkedin")
+
+    with tab_twitter:
+        show_platform("twitter")
+
+    # Run content pipeline button
+    st.divider()
+    st.markdown("#### ⚡ Content Pipeline")
+    col_gen, col_send = st.columns(2)
+    with col_gen:
+        if st.button("🎨 Generate New Content", use_container_width=True):
+            with st.spinner("Generating LinkedIn + Twitter posts..."):
+                import subprocess
+                result = subprocess.run(
+                    [sys.executable, "-c", """
+import sys
+sys.path.insert(0, '.')
+from content.content_scheduler import run_content_pipeline
+results = run_content_pipeline()
+print(results)
+"""],
+                    capture_output=True, text=True, timeout=300, cwd=str(ROOT)
+                )
+                if result.returncode == 0:
+                    st.success("✅ Content generated!")
+                    st.code(result.stdout[-1500:], language="bash")
+                else:
+                    st.error(f"❌ Failed: {result.stderr[-500:]}")
+                st.rerun()
+    with col_send:
+        st.info("📱 Telegram: message @Dasomni_bot and say 'drafts' to see pending content")
+
+
 def main():
     page = sidebar()
     pages = {
@@ -543,6 +701,7 @@ def main():
         "🧠 Intelligence": page_intelligence,
         "🚀 Progress": page_progress,
         "⚡ Pipeline": page_pipeline,
+        "📝 Content": page_content,
     }
     fn = pages.get(page)
     if fn:
