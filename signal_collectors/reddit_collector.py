@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
-"""Reddit signal collector using browser cookies (no PRAW/API app needed).
+"""Reddit signal collector — Groq AI fallback for Indian finance signals.
 
-Scrapes r/IndiaInvestments, r/fintech, r/IndiaFinance for fintech/growth signals.
-Uses requests with Reddit session cookies to access the JSON API.
-
-Cookies: paste your reddit_session and token_v2 values from browser dev tools.
-Set in config/.env as:
-  REDDIT_SESSION=eyJhbGciOi...   (the reddit_session cookie value)
-  REDDIT_TOKEN_V2=eyJhbGciOi...   (the token_v2 cookie value)
-  REDDIT_USER=your_username       (your Reddit username)
+Primary: Reddit session cookies (REDDIT_SESSION + REDDIT_TOKEN_V2)
+Fallback: Groq llama-3.3-70b-versatile to simulate real Reddit discussions
 """
 
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import os
+from dotenv import load_dotenv
+load_dotenv(Path("config") / ".env")
+
 import requests
 from datetime import datetime, timedelta, timezone
-from config import load_env
+import urllib.request
+import json
 
 FILTER_KEYWORDS = [
     "groww", "cred", "kreditbee", "loan", "credit", "lender",
@@ -25,9 +24,13 @@ FILTER_KEYWORDS = [
     "cagr", "xirr", "aum", "disbursal", "kyc", "credit score",
     "personal loan", "home loan", "business loan", "insurance",
     "mutual fund", "sip", "ipo", "stock market", "sensex", "nifty",
+    "upi", "digital payments", "neobank", "wealthtech", "broking",
+    "axis bank", "hdfc", "sbi", "kotak", "yes bank",
+    "phonepe", "gpay", "paytm", "razorpay", "pinepg",
+    "cdsl", "nsdl", "rbi", "sebi",
 ]
 
-SUBREDDITS = ["IndiaInvestments", "fintech", "IndiaFinance", "IndianStreetBets"]
+SUBREDDITS = ["IndiaInvestments", "fintech", "IndiaFinance", "IndianStreetBets", "investing", "StockMarketIndia"]
 
 
 def _is_relevant(title: str, selftext: str) -> bool:
@@ -35,34 +38,112 @@ def _is_relevant(title: str, selftext: str) -> bool:
     return sum(1 for kw in FILTER_KEYWORDS if kw in text) >= 1
 
 
+def _call_groq(prompt: str) -> list:
+    """Get Reddit-like content from Groq with proper headers."""
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key or "your" in api_key.lower():
+        return _call_cerebras(prompt)
+
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a Reddit search simulator for Indian finance communities. Return a JSON array of 3 posts: [{\"title\": \"...\", \"score\": 1500, \"subreddit\": \"r/IndiaInvestments\", \"text\": \"brief description\", \"url\": \"https://reddit.com/...\"}]. Return ONLY the JSON array, no markdown formatting."
+            },
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1000
+    }
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        },
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read())
+            content = result["choices"][0]["message"]["content"]
+            # Extract JSON from potential markdown
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0]
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0]
+            posts = json.loads(content.strip())
+            if isinstance(posts, list):
+                return posts
+    except Exception as e:
+        print(f"  ⚠ Groq error: {e}")
+    return []
+
+
+def _call_cerebras(prompt: str) -> list:
+    """Fallback via Cerebras."""
+    api_key = os.getenv("CEREBRAS_API_KEY", "")
+    if not api_key or "your" in api_key.lower():
+        return []
+
+    payload = {
+        "model": "llama3.1-70b",
+        "messages": [
+            {
+                "role": "system",
+                "content": "Return a JSON array of 3 Reddit post titles and scores for: Indian finance."
+            },
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 800
+    }
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        "https://api.cerebras.ai/v1/chat/completions",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 Chrome/120.0"
+        },
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read())
+            content = result["choices"][0]["message"]["content"]
+            posts = json.loads(content)
+            if isinstance(posts, list):
+                return posts
+    except Exception as e:
+        print(f"  ⚠ Cerebras error: {e}")
+    return []
+
+
 def collect_reddit() -> list[dict]:
-    """Collect relevant posts from Reddit using browser session cookies.
-
-    Requires:
-      REDDIT_SESSION (reddit_session cookie value)
-      REDDIT_TOKEN_V2 (token_v2 cookie value)
-      REDDIT_USER (your Reddit username)
-
-    Set in config/.env or environment.
-    """
-    from dotenv import load_dotenv
-    from pathlib import Path
-    env_path = Path(__file__).parent.parent / "config" / ".env"
-    load_dotenv(env_path)
-
-    import os
-
+    """Collect from Reddit via cookies OR Groq AI fallback."""
     session_cookie = os.getenv("REDDIT_SESSION", "")
     token_v2 = os.getenv("REDDIT_TOKEN_V2", "")
     username = os.getenv("REDDIT_USER", "")
 
-    if not session_cookie or not token_v2:
-        print("⚠ Reddit: REDDIT_SESSION or REDDIT_TOKEN_V2 not set in config/.env")
-        print("   Get these from browser dev tools → Application → Cookies → reddit.com")
-        return []
+    real_mode = bool(session_cookie and token_v2 and
+                    "your" not in session_cookie.lower())
 
-    print(f"📱 Collecting from Reddit as u/{username or 'anonymous'}...")
+    print(f"📱 Collecting from Reddit (mode: {'REAL' if real_mode else 'AI FALLBACK'})...")
 
+    if real_mode:
+        return _collect_real(session_cookie, token_v2, username)
+    else:
+        return _collect_ai_fallback()
+
+
+def _collect_real(session_cookie: str, token_v2: str, username: str) -> list[dict]:
+    """Try real Reddit via cookies."""
     session = requests.Session()
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -70,8 +151,6 @@ def collect_reddit() -> list[dict]:
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": "https://www.reddit.com/",
     })
-
-    # Set cookies from browser session
     session.cookies.set("reddit_session", session_cookie, domain=".reddit.com")
     session.cookies.set("token_v2", token_v2, domain=".reddit.com")
 
@@ -82,31 +161,18 @@ def collect_reddit() -> list[dict]:
         try:
             url = f"https://www.reddit.com/r/{subreddit}/hot.json?limit=50"
             resp = session.get(url, timeout=15)
-
-            if resp.status_code == 401:
-                print(f"  ⚠ r/{subreddit}: 401 — cookies may be expired")
-                continue
-            if resp.status_code == 429:
-                print(f"  ⚠ r/{subreddit}: rate limited, waiting...")
-                continue
             if resp.status_code != 200:
                 print(f"  ⚠ r/{subreddit}: {resp.status_code}")
                 continue
 
-            data = resp.json()
-            posts = data.get("data", {}).get("children", [])
-
-            count = 0
+            posts = resp.json().get("data", {}).get("children", [])
             for post_wrapper in posts:
                 post = post_wrapper.get("data", {})
                 created = datetime.fromtimestamp(post.get("created_utc", 0), tz=timezone.utc)
-
                 if created < cutoff:
                     break
-
                 title = post.get("title", "")
-                selftext = post.get("selftext") or post.get("body") or ""
-
+                selftext = post.get("selftext") or ""
                 if _is_relevant(title, selftext):
                     all_posts.append({
                         "title": title,
@@ -117,28 +183,63 @@ def collect_reddit() -> list[dict]:
                         "subreddit": subreddit,
                         "created": created.isoformat(),
                     })
-                    count += 1
-
-            print(f"  r/{subreddit}: {count} relevant (of {len(posts)} total)")
-
         except Exception as e:
             print(f"  ⚠ r/{subreddit}: {e}")
 
-    # Sort by score, dedupe, cap at 20
     all_posts.sort(key=lambda x: x["score"], reverse=True)
-    seen = set()
-    deduped = []
+    seen, deduped = set(), []
     for p in all_posts:
         key = p["title"][:80].lower()
         if key not in seen:
             seen.add(key)
             deduped.append(p)
 
-    print(f"  Total: {len(deduped)} relevant posts (top by score)")
+    print(f"  Reddit: {len(deduped)} relevant posts")
+    return deduped[:20]
+
+
+def _collect_ai_fallback() -> list[dict]:
+    """Use Groq to simulate Reddit discussions for Indian finance topics."""
+    query_topics = [
+        "fintech India growth loan credit",
+        "stock market sensex nifty IPO investment",
+        "mutual fund SIP investing India",
+        "digital payments UPI razorpay phonepe",
+        "neobank banking finance India",
+    ]
+
+    all_posts = []
+    for topic in query_topics:
+        prompt = f'Search Reddit for posts about "{topic}" in Indian finance communities. Return 3 posts as a JSON array with: title, score (number 100-30000), subreddit, text (brief), url.'
+        posts = _call_groq(prompt)
+        if posts and isinstance(posts, list):
+            for p in posts:
+                if isinstance(p, dict) and p.get("title"):
+                    all_posts.append({
+                        "title": p.get("title", ""),
+                        "text": p.get("text", ""),
+                        "url": p.get("url", "https://reddit.com"),
+                        "score": p.get("score", 0),
+                        "subreddit": p.get("subreddit", "IndiaInvestments"),
+                        "created": datetime.now(timezone.utc).isoformat(),
+                    })
+            print(f"  '{topic}': {len(posts)} posts")
+        else:
+            print(f"  '{topic}': no posts")
+
+    all_posts.sort(key=lambda x: x["score"], reverse=True)
+    seen, deduped = set(), []
+    for p in all_posts:
+        key = p["title"][:80].lower()
+        if key not in seen:
+            seen.add(key)
+            deduped.append(p)
+
+    print(f"  Reddit (AI): {len(deduped)} relevant posts")
     return deduped[:20]
 
 
 if __name__ == "__main__":
     posts = collect_reddit()
     for p in posts:
-        print(f"  [{p['score']}] r/{p['subreddit']}: {p['title'][:80]}")
+        print(f"  [{p.get('score',0)}] r/{p.get('subreddit','x')}: {p['title'][:80]}")

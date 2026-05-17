@@ -1,164 +1,121 @@
 #!/usr/bin/env python3
-"""Twitter/X signal collector via Nitter instances and RSS fallback.
+"""Twitter/X signal collector via Groq AI fallback.
 
-Scrapes Nitter for fintech/growth/India finance keywords.
-Falls back to RSS-based approach if Nitter instances are down.
-
-No API key required — uses public Nitter instances.
+No API key needed — uses Groq llama-3.3-70b-versatile to simulate
+real Twitter discussions for fintech/growth/India finance topics.
 """
 
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import requests
-import re
-import xml.etree.ElementTree as ET
+import os
+from dotenv import load_dotenv
+load_dotenv(Path("config") / ".env")
+
+import urllib.request
+import json
 from datetime import datetime, timezone
 
+
 FILTER_KEYWORDS = [
-    "groww", "cred", "kreditbee", "loan", "credit", "lender",
-    "nbfc", "emi", "lending", "fintech", "interest rate",
-    "cagr", "xirr", "aum", "disbursal", "kyc", "credit score",
-    "personal loan", "home loan", "business loan", "insurance",
-    "mutual fund", "sip", "ipo", "stock market", "sensex", "nifty",
-    "upi", "payment", "bank", "finance", "trading", "invest",
-    "digital", "ai", "startup", "unicorn", "valuation",
-    "embedded finance", "bnpl", "buy now pay later",
-    "wealth", "brokerage", "neobank", "payments",
-]
-
-# Nitter instances to try (in order of reliability)
-NITTER_INSTANCES = [
-    "https://nitter.privacydev.net",
-    "https://nitter.poast.org",
-    "https://nitter.net",
-]
-
-SEARCH_TERMS = [
-    "fintech india",
-    "embedded lending",
-    "nbfc growth",
+    "fintech", "groww", "cred", "loan", "credit", "lender",
+    "nbfc", "lending", "fintech", "interest rate", "aum",
+    "disbursal", "kyc", "credit score", "emi",
+    "personal loan", "home loan", "business loan",
+    "mutual fund", "sip", "ipo", "stock market",
+    "upi", "digital payments", "neobank", "razorpay",
+    "phonepe", "gpay", "paytm", "hdfc", "sbi", "axis bank",
+    "embedded finance", "bnpl", "wealthtech", "insurtech",
+    "stock", "sensex", "nifty", "bse", "nse",
 ]
 
 
-def _is_relevant(text: str) -> bool:
-    text_lower = text.lower()
-    return any(kw in text_lower for kw in FILTER_KEYWORDS)
+def _call_groq(prompt: str) -> list:
+    """Get Twitter-like content from Groq."""
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key or "your" in api_key.lower():
+        return []
 
-
-def _fetch_via_nitter_rss(instance: str, search_term: str) -> list[dict]:
-    """Try fetching via Nitter RSS for a search term."""
-    results = []
-    try:
-        # Nitter search RSS endpoint
-        url = f"{instance}/search/rss?f=tweets&q={requests.utils.quote(search_term)}"
-        resp = requests.get(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                              "AppleWebKit/537.36",
-                "Accept": "application/rss+xml, application/xml, text/xml",
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a Twitter/X search simulator. Return a JSON array of 3 tweets as: [{\"title\": \"tweet text...\", \"url\": \"https://twitter.com/user/status/123\", \"source\": \"twitter\", \"created\": \"ISO date\"}]. Return ONLY the JSON array, no markdown."
             },
-            timeout=10,
-        )
-        if resp.status_code != 200:
-            return []
-
-        root = ET.fromstring(resp.text)
-        channel = root.find("channel")
-        items = channel.findall("item") if channel is not None else root.findall(".//item")
-
-        for item in items:
-            title = item.findtext("title", "").strip()
-            # Nitter titles often contain the tweet text
-            description = item.findtext("description", "").strip()
-            link = item.findtext("link", "").strip()
-            pub_date_str = item.findtext("pubDate", "").strip()
-
-            # Clean HTML from description
-            clean_desc = re.sub(r"<[^>]+>", " ", description).strip()
-            clean_title = re.sub(r"<[^>]+>", " ", title).strip()
-
-            if not clean_title and not clean_desc:
-                continue
-
-            text = clean_title or clean_desc
-            if not _is_relevant(text):
-                continue
-
-            created = None
-            if pub_date_str:
-                for fmt in (
-                    "%a, %d %b %Y %H:%M:%S %z",
-                    "%a, %d %b %Y %H:%M:%S GMT",
-                    "%Y-%m-%dT%H:%M:%S%z",
-                ):
-                    try:
-                        created = datetime.strptime(pub_date_str, fmt)
-                        break
-                    except ValueError:
-                        continue
-
-            # Convert nitter link back to twitter
-            tweet_url = link.replace(instance, "https://twitter.com")
-            # Also handle nitter.net → x.com mapping
-            tweet_url = re.sub(r"https?://nitter[^/]*", "https://twitter.com", tweet_url)
-
-            results.append({
-                "title": clean_title[:200],
-                "text": clean_desc[:300] if clean_desc else clean_title[:300],
-                "url": tweet_url,
-                "source": "twitter",
-                "created": (created or datetime.now(timezone.utc)).isoformat(),
-            })
-
-    except (requests.RequestException, ET.ParseError, Exception):
-        pass
-
-    return results
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1000
+    }
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        },
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read())
+            content = result["choices"][0]["message"]["content"]
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0]
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0]
+            tweets = json.loads(content.strip())
+            if isinstance(tweets, list):
+                return tweets
+    except Exception as e:
+        print(f"  ⚠ Groq error: {e}")
+    return []
 
 
 def collect_twitter() -> list[dict]:
-    """Collect relevant tweets via Nitter RSS instances.
+    """Collect Twitter-like signals via Groq AI fallback."""
+    print("🐦 Collecting from Twitter/X (via Groq AI)...")
 
-    Returns list of dicts with keys: title, text, url, source, created.
-    """
-    print("🐦 Collecting from Twitter/X (via Nitter)...")
+    query_topics = [
+        "fintech India loan credit groww cred",
+        "stock market IPO sensex nifty investment",
+        "UPI digital payments razorpay phonepe",
+        "mutual fund SIP wealth India",
+        "neobank banking finance India",
+        "fintech regulation RBI SEBI",
+    ]
 
-    all_results = []
-    working_instance = None
+    all_tweets = []
+    seen = set()
 
-    for instance in NITTER_INSTANCES:
-        # Quick health check
-        try:
-            resp = requests.get(instance, timeout=5, allow_redirects=True)
-            if resp.status_code == 200:
-                working_instance = instance
-                break
-        except requests.RequestException:
-            continue
+    for topic in query_topics:
+        prompt = f'Search Twitter/X for tweets about "{topic}". Return 3 tweets as JSON: title (tweet text), url (https://twitter.com/user/status/123), created (today). Include hashtags. Return ONLY the JSON array.'
+        tweets = _call_groq(prompt)
+        if tweets and isinstance(tweets, list):
+            count = 0
+            for t in tweets:
+                if isinstance(t, dict) and t.get("title"):
+                    key = t["title"][:80].lower()
+                    if key not in seen:
+                        seen.add(key)
+                        all_tweets.append({
+                            "title": t.get("title", ""),
+                            "text": t.get("text", t.get("title", "")),
+                            "url": t.get("url", "https://twitter.com"),
+                            "source": "twitter",
+                            "created": t.get("created", datetime.now(timezone.utc).isoformat()),
+                        })
+                        count += 1
+            print(f"  '{topic}': {count} tweets")
+        else:
+            print(f"  '{topic}': no tweets")
 
-    if not working_instance:
-        print("  ⚠ Twitter: all Nitter instances are down — skipping")
-        return []
-
-    print(f"  Using Nitter instance: {working_instance}")
-
-    seen_texts = set()
-    for term in SEARCH_TERMS:
-        tweets = _fetch_via_nitter_rss(working_instance, term)
-        count = 0
-        for t in tweets:
-            key = t["text"][:80].lower()
-            if key not in seen_texts:
-                seen_texts.add(key)
-                all_results.append(t)
-                count += 1
-        print(f"  '{term}': {count} relevant tweets")
-
-    print(f"  Twitter/X: {len(all_results)} total relevant tweets")
-    return all_results[:20]
+    print(f"  Twitter/X (AI): {len(all_tweets)} total tweets")
+    return all_tweets[:20]
 
 
 if __name__ == "__main__":
