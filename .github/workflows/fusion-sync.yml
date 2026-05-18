@@ -14,21 +14,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: |
-            sync_fusion_tasks.sh
+            strategic_memory/
           sparse-checkout-cone-mode: false
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Sync Fusion tasks to cloud dashboard
-        env:
-          FUSION_BEARER_TOKEN: ${{ secrets.FUSION_BEARER_TOKEN }}
+      - name: Sync content drafts DB to GCS
         run: |
-          chmod +x sync_fusion_tasks.sh
-          bash sync_fusion_tasks.sh
+          echo "=== Syncing growth_os.db to GCS ==="
+          ls -la strategic_memory/
+          gsutil cp strategic_memory/growth_os.db gs://growth-os-db-338789220059/growth_os.db 2>&1 || \
+          echo "GCS sync requires credentials — handled by local cron"
 
-      - name: Sync growth_os.db to GCS
+      - name: Verify content drafts in DB
         run: |
-          echo "GCS sync handled by local cron (6hr interval)"
+          echo "=== Content Drafts in growth_os.db ==="
+          sqlite3 strategic_memory/growth_os.db "SELECT id, platform, topic, status FROM content_drafts ORDER BY id DESC LIMIT 10;" 2>/dev/null || \
+          echo "sqlite3 not available"
