@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Reddit signal collector — Groq AI fallback for Indian finance signals.
+"""Reddit signal collector — MiniMax AI fallback for Indian finance signals.
 
 Primary: Reddit session cookies (REDDIT_SESSION + REDDIT_TOKEN_V2)
-Fallback: Groq llama-3.3-70b-versatile to simulate real Reddit discussions
+Fallback: MiniMax MiniMax-Text-01 to simulate real Reddit discussions
 """
 
 import sys
@@ -38,14 +38,52 @@ def _is_relevant(title: str, selftext: str) -> bool:
     return sum(1 for kw in FILTER_KEYWORDS if kw in text) >= 1
 
 
-def _call_groq(prompt: str) -> list:
-    """Get Reddit-like content from Groq with proper headers."""
-    api_key = os.getenv("GROQ_API_KEY", "")
+def _repair_json_array(text: str) -> list:
+    """Try to repair truncated JSON arrays."""
+    text = text.strip()
+    # Already valid?
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Try closing open structures
+    for fix in [']}', ']}', '}]', ']']:
+        try:
+            return json.loads(text + fix)
+        except json.JSONDecodeError:
+            continue
+    # Try extracting objects with regex
+    import re
+    objects = re.findall(r'\{[^{}]*\}', text)
+    if objects:
+        results = []
+        for obj_str in objects:
+            try:
+                results.append(json.loads(obj_str))
+            except json.JSONDecodeError:
+                continue
+        if results:
+            return results
+    return []
+
+
+def _call_minimax(prompt: str) -> list:
+    """Get Reddit-like content from MiniMax via OpenCode proxy."""
+    api_key = os.getenv("OPENCODE_GO_API_KEY", "")
     if not api_key or "your" in api_key.lower():
-        return _call_cerebras(prompt)
+        # Fallback to MINIMAX_API_KEY (direct)
+        api_key = os.getenv("MINIMAX_API_KEY", "")
+        if not api_key or "your" in api_key.lower():
+            print("  ⚠ OPENCODE_GO_API_KEY / MINIMAX_API_KEY not set")
+            return []
+        base_url = "https://api.minimax.chat/v1/text/chatcompletion_v2"
+        model = "MiniMax-Text-01"
+    else:
+        base_url = "https://opencode.ai/zen/go/v1/chat/completions"
+        model = "minimax-m2.7"
 
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": model,
         "messages": [
             {
                 "role": "system",
@@ -58,75 +96,34 @@ def _call_groq(prompt: str) -> list:
     }
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
-        "https://api.groq.com/openai/v1/chat/completions",
+        base_url,
         data=data,
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         },
         method="POST"
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read())
-            content = result["choices"][0]["message"]["content"]
+            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
             # Extract JSON from potential markdown
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             elif "```" in content:
                 content = content.split("```")[1].split("```")[0]
-            posts = json.loads(content.strip())
-            if isinstance(posts, list):
+            posts = _repair_json_array(content)
+            if isinstance(posts, list) and posts:
                 return posts
     except Exception as e:
-        print(f"  ⚠ Groq error: {e}")
-    return []
-
-
-def _call_cerebras(prompt: str) -> list:
-    """Fallback via Cerebras."""
-    api_key = os.getenv("CEREBRAS_API_KEY", "")
-    if not api_key or "your" in api_key.lower():
-        return []
-
-    payload = {
-        "model": "llama3.1-70b",
-        "messages": [
-            {
-                "role": "system",
-                "content": "Return a JSON array of 3 Reddit post titles and scores for: Indian finance."
-            },
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.7,
-        "max_tokens": 800
-    }
-    data = json.dumps(payload).encode()
-    req = urllib.request.Request(
-        "https://api.cerebras.ai/v1/chat/completions",
-        data=data,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 Chrome/120.0"
-        },
-        method="POST"
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            result = json.loads(resp.read())
-            content = result["choices"][0]["message"]["content"]
-            posts = json.loads(content)
-            if isinstance(posts, list):
-                return posts
-    except Exception as e:
-        print(f"  ⚠ Cerebras error: {e}")
+        print(f"  ⚠ MiniMax error: {e}")
     return []
 
 
 def collect_reddit() -> list[dict]:
-    """Collect from Reddit via cookies OR Groq AI fallback."""
+    """Collect from Reddit via cookies OR MiniMax AI fallback."""
     session_cookie = os.getenv("REDDIT_SESSION", "")
     token_v2 = os.getenv("REDDIT_TOKEN_V2", "")
     username = os.getenv("REDDIT_USER", "")
@@ -199,7 +196,7 @@ def _collect_real(session_cookie: str, token_v2: str, username: str) -> list[dic
 
 
 def _collect_ai_fallback() -> list[dict]:
-    """Use Groq to simulate Reddit discussions for Indian finance topics."""
+    """Use MiniMax to simulate Reddit discussions for Indian finance topics."""
     query_topics = [
         "fintech India growth loan credit",
         "stock market sensex nifty IPO investment",
@@ -211,7 +208,7 @@ def _collect_ai_fallback() -> list[dict]:
     all_posts = []
     for topic in query_topics:
         prompt = f'Search Reddit for posts about "{topic}" in Indian finance communities. Return 3 posts as a JSON array with: title, score (number 100-30000), subreddit, text (brief), url.'
-        posts = _call_groq(prompt)
+        posts = _call_minimax(prompt)
         if posts and isinstance(posts, list):
             for p in posts:
                 if isinstance(p, dict) and p.get("title"):

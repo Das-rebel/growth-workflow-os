@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Twitter/X signal collector via Groq AI fallback.
+"""Twitter/X signal collector via MiniMax AI.
 
-No API key needed — uses Groq llama-3.3-70b-versatile to simulate
-real Twitter discussions for fintech/growth/India finance topics.
+Uses MiniMax MiniMax-Text-01 to generate real Twitter-style
+discussions for fintech/growth/India finance topics.
 """
 
 import sys
@@ -31,14 +31,48 @@ FILTER_KEYWORDS = [
 ]
 
 
-def _call_groq(prompt: str) -> list:
-    """Get Twitter-like content from Groq."""
-    api_key = os.getenv("GROQ_API_KEY", "")
+def _repair_json_array(text: str) -> list:
+    """Try to repair truncated JSON arrays."""
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    for fix in [']}', ']}', '}]', ']']:
+        try:
+            return json.loads(text + fix)
+        except json.JSONDecodeError:
+            continue
+    import re
+    objects = re.findall(r'\{[^{}]*\}', text)
+    if objects:
+        results = []
+        for obj_str in objects:
+            try:
+                results.append(json.loads(obj_str))
+            except json.JSONDecodeError:
+                continue
+        if results:
+            return results
+    return []
+
+
+def _call_minimax(prompt: str) -> list:
+    """Get Twitter-like content from MiniMax via OpenCode proxy."""
+    api_key = os.getenv("OPENCODE_GO_API_KEY", "")
     if not api_key or "your" in api_key.lower():
-        return []
+        api_key = os.getenv("MINIMAX_API_KEY", "")
+        if not api_key or "your" in api_key.lower():
+            print("  ⚠ OPENCODE_GO_API_KEY / MINIMAX_API_KEY not set")
+            return []
+        base_url = "https://api.minimax.chat/v1/text/chatcompletion_v2"
+        model = "MiniMax-Text-01"
+    else:
+        base_url = "https://opencode.ai/zen/go/v1/chat/completions"
+        model = "minimax-m2.7"
 
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": model,
         "messages": [
             {
                 "role": "system",
@@ -51,34 +85,34 @@ def _call_groq(prompt: str) -> list:
     }
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
-        "https://api.groq.com/openai/v1/chat/completions",
+        base_url,
         data=data,
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         },
         method="POST"
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read())
-            content = result["choices"][0]["message"]["content"]
+            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             elif "```" in content:
                 content = content.split("```")[1].split("```")[0]
-            tweets = json.loads(content.strip())
-            if isinstance(tweets, list):
+            tweets = _repair_json_array(content)
+            if isinstance(tweets, list) and tweets:
                 return tweets
     except Exception as e:
-        print(f"  ⚠ Groq error: {e}")
+        print(f"  ⚠ MiniMax error: {e}")
     return []
 
 
 def collect_twitter() -> list[dict]:
-    """Collect Twitter-like signals via Groq AI fallback."""
-    print("🐦 Collecting from Twitter/X (via Groq AI)...")
+    """Collect Twitter-like signals via MiniMax AI."""
+    print("🐦 Collecting from Twitter/X (via MiniMax AI)...")
 
     query_topics = [
         "fintech India loan credit groww cred",
@@ -94,7 +128,7 @@ def collect_twitter() -> list[dict]:
 
     for topic in query_topics:
         prompt = f'Search Twitter/X for tweets about "{topic}". Return 3 tweets as JSON: title (tweet text), url (https://twitter.com/user/status/123), created (today). Include hashtags. Return ONLY the JSON array.'
-        tweets = _call_groq(prompt)
+        tweets = _call_minimax(prompt)
         if tweets and isinstance(tweets, list):
             count = 0
             for t in tweets:
