@@ -14,10 +14,16 @@ import os
 from dotenv import load_dotenv
 load_dotenv(Path("config") / ".env")
 
-import litellm
+import urllib.request
+import json
 from datetime import datetime, timezone
 from signals.vault_interest_extractor import get_vault_context_for_topic, search_vault
 from content.content_drafts_store import save_draft
+
+# MiniMax via OpenCode proxy
+OPENCODE_API_KEY = os.getenv("OPENCODE_GO_API_KEY", "")
+OPENCODE_BASE = "https://opencode.ai/zen/go/v1/chat/completions"
+MODEL = "minimax-m2.7"
 
 BRAND_VOICE = """You are writing for Subhajit Das — ex-Groww (scaled lending $5M→$36M), ex-NIRO ($8M/mo), ex-Axis Bank/ICICI, IIM Tiruchirappalli + IISER Pune. Target audience: growth operators, fintech founders, product people in India.
 
@@ -54,8 +60,38 @@ OUTPUT: ONLY the post content, 300-500 words. No meta-commentary.
 Write it now."""
 
 
+def _call_minimax(system: str, user: str, max_tokens: int = 900, temperature: float = 0.8) -> str:
+    """Call MiniMax via OpenCode proxy."""
+    if not OPENCODE_API_KEY:
+        raise RuntimeError("OPENCODE_GO_API_KEY not set")
+
+    payload = {
+        "model": MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user}
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        OPENCODE_BASE,
+        data=data,
+        headers={
+            "Authorization": f"Bearer {OPENCODE_API_KEY}",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        },
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        result = json.loads(resp.read())
+        return result["choices"][0]["message"]["content"].strip()
+
+
 def generate_linkedin_post(topic: str = None) -> dict:
-    """One-shot LinkedIn post generator using Groq."""
+    """One-shot LinkedIn post generator using MiniMax."""
     print(f"\n📝 Generating LinkedIn post for topic: {topic or 'fintech_growth'}")
 
     if not topic:
@@ -73,16 +109,7 @@ def generate_linkedin_post(topic: str = None) -> dict:
     prompt = LINKEDIN_POST_PROMPT.format(topic=topic, vault_context=ctx_text)
 
     try:
-        response = litellm.completion(
-            model="groq/llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": BRAND_VOICE},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.8,
-            max_tokens=900,
-        )
-        post_text = response["choices"][0]["message"]["content"].strip()
+        post_text = _call_minimax(BRAND_VOICE, prompt, max_tokens=900)
 
         draft_id = save_draft(
             platform="linkedin",

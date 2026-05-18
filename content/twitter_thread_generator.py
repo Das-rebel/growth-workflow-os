@@ -9,10 +9,16 @@ import os
 from dotenv import load_dotenv
 load_dotenv(Path("config") / ".env")
 
-import litellm
+import urllib.request
+import json
 from datetime import datetime, timezone
 from signals.vault_interest_extractor import get_vault_context_for_topic, search_vault
 from content.content_drafts_store import save_draft
+
+# MiniMax via OpenCode proxy
+OPENCODE_API_KEY = os.getenv("OPENCODE_GO_API_KEY", "")
+OPENCODE_BASE = "https://opencode.ai/zen/go/v1/chat/completions"
+MODEL = "minimax-m2.7"
 
 BRAND_VOICE = """You are writing for Subhajit Das — ex-Groww (scaled lending $5M→$36M), ex-NIRO ($8M/mo), ex-Axis Bank/ICICI, IIM Tiruchirappalli + IISER Pune.
 
@@ -45,8 +51,38 @@ Each tweet max 280 chars. No hashtags. No meta-commentary.
 Write the thread now."""
 
 
+def _call_minimax(system: str, user: str, max_tokens: int = 1200, temperature: float = 0.8) -> str:
+    """Call MiniMax via OpenCode proxy."""
+    if not OPENCODE_API_KEY:
+        raise RuntimeError("OPENCODE_GO_API_KEY not set")
+
+    payload = {
+        "model": MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user}
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        OPENCODE_BASE,
+        data=data,
+        headers={
+            "Authorization": f"Bearer {OPENCODE_API_KEY}",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        },
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        result = json.loads(resp.read())
+        return result["choices"][0]["message"]["content"].strip()
+
+
 def generate_twitter_thread(topic: str = None) -> dict:
-    """One-shot Twitter thread generator using Groq."""
+    """One-shot Twitter thread generator using MiniMax."""
     print(f"\n🐦 Generating Twitter thread for topic: {topic or 'fintech_growth'}")
 
     if not topic:
@@ -64,16 +100,7 @@ def generate_twitter_thread(topic: str = None) -> dict:
     prompt = THREAD_PROMPT.format(topic=topic, vault_context=ctx_text)
 
     try:
-        response = litellm.completion(
-            model="groq/llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": BRAND_VOICE},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.8,
-            max_tokens=1200,
-        )
-        thread_text = response["choices"][0]["message"]["content"].strip()
+        thread_text = _call_minimax(BRAND_VOICE, prompt, max_tokens=1200)
 
         # Parse tweets from thread
         tweets = _parse_tweets(thread_text)
@@ -110,7 +137,6 @@ def _parse_tweets(thread_text: str) -> list[dict]:
         line = line.strip()
         if not line:
             continue
-        # Match [1/5], 1/, [1]/5 patterns
         import re
         match = re.match(r"\[?(\d+)/5\]?\s*(.*)", line, re.DOTALL)
         if match:

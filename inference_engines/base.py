@@ -112,10 +112,10 @@ class InferenceEngine(ABC):
             "request_timeout": 60,
         }
 
-        # Pass api_base + api_key for OpenAI-compatible providers (MiniMax)
+        # Pass api_base + api_key for OpenAI-compatible providers (MiniMax via OpenCode)
         if api_base:
             kwargs["api_base"] = api_base
-            kwargs["api_key"] = _load_env_key("MINIMAX_API_KEY")
+            kwargs["api_key"] = _load_env_key("OPENCODE_GO_API_KEY") or _load_env_key("MINIMAX_API_KEY")
 
         if json_output and json_schema:
             kwargs["response_format"] = {"type": "json_object", "json_schema": json_schema}
