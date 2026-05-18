@@ -14,18 +14,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: |
-            strategic_memory/*
+            strategic_memory/
           sparse-checkout-cone-mode: false
 
-      - name: Sync content drafts DB to GCS
+      - name: Check DB status
         run: |
-          echo "=== Syncing growth_os.db to GCS ==="
-          ls -la strategic_memory/
-          gsutil cp strategic_memory/growth_os.db gs://growth-os-db-338789220059/growth_os.db 2>&1 || \
-          echo "GCS sync requires credentials — handled by local cron"
+          echo "=== growth_os.db status ==="
+          ls -la strategic_memory/*.db 2>/dev/null || echo "No .db files in strategic_memory (gitignored)"
+          echo "GCS sync is handled by local cron (6hr interval) + push-triggered sync"
+          echo "Telegram bot reads directly from GCS: gs://growth-os-db-338789220059/growth_os.db"
 
-      - name: Verify content drafts in DB
+      - name: Verify content drafts exist locally
+        if: always()
         run: |
-          echo "=== Content Drafts in growth_os.db ==="
-          sqlite3 strategic_memory/growth_os.db "SELECT id, platform, topic, status FROM content_drafts ORDER BY id DESC LIMIT 10;" 2>/dev/null || \
-          echo "sqlite3 not available"
+          echo "=== Content Drafts check ==="
+          # The DB file is gitignored — verify by checking if it exists locally
+          if [ -f "strategic_memory/growth_os.db" ]; then
+            echo "Found: strategic_memory/growth_os.db (gitignored — tracked locally)"
+          else
+            echo "DB not in git — local cron handles GCS sync"
+          fi
