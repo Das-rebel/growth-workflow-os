@@ -7,13 +7,15 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
     steps:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: |
             sync_fusion_tasks.sh
-            config/.env
-          sparse-checkout-mode: single
+          sparse-checkout-cone-mode: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -24,15 +26,9 @@ jobs:
         env:
           FUSION_BEARER_TOKEN: ${{ secrets.FUSION_BEARER_TOKEN }}
         run: |
-          echo "=== Fusion Task Sync ==="
           chmod +x sync_fusion_tasks.sh
           bash sync_fusion_tasks.sh
-          echo "=== Sync complete ==="
 
       - name: Sync growth_os.db to GCS
-        env:
-          GOOGLE_AUTH_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
         run: |
-          echo "Syncing DB to GCS..."
-          gsutil cp strategic_memory/growth_os.db gs://growth-os-db-338789220059/growth_os.db 2>/dev/null || \
-          echo "GCS sync skipped (credentials not configured in GitHub Actions — handled locally by cron)"
+          echo "GCS sync handled by local cron (6hr interval)"
