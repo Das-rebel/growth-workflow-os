@@ -9,5 +9,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run Fusion sync
-        run: echo "Dashboard: https://fusion-dashboard-338789220059.asia-south1.run.app"
+        with:
+          sparse-checkout: |
+            sync_fusion_tasks.sh
+            config/.env
+          sparse-checkout-mode: single
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Sync Fusion tasks to cloud dashboard
+        env:
+          FUSION_BEARER_TOKEN: ${{ secrets.FUSION_BEARER_TOKEN }}
+        run: |
+          echo "=== Fusion Task Sync ==="
+          chmod +x sync_fusion_tasks.sh
+          bash sync_fusion_tasks.sh
+          echo "=== Sync complete ==="
+
+      - name: Sync growth_os.db to GCS
+        env:
+          GOOGLE_AUTH_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: |
+          echo "Syncing DB to GCS..."
+          gsutil cp strategic_memory/growth_os.db gs://growth-os-db-338789220059/growth_os.db 2>/dev/null || \
+          echo "GCS sync skipped (credentials not configured in GitHub Actions — handled locally by cron)"
